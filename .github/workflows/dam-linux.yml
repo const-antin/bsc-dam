@@ -1,0 +1,77 @@
+name: DAM Linux
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'dam/**'
+      - 'src/**'
+      - 'platform.mk'
+      - 'GNUmakefile'
+      - '.gitmodules'
+      - '.github/workflows/dam-linux.yml'
+  pull_request:
+    paths:
+      - 'dam/**'
+      - 'src/**'
+      - 'platform.mk'
+      - 'GNUmakefile'
+      - '.gitmodules'
+      - '.github/workflows/dam-linux.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      # Upstream disables STP on ARM because one of its tests hangs there.
+      # The default Yices solver is still built and used.
+      STP_STUB: ${{ endsWith(matrix.os, '-arm') && '1' || '' }}
+      GHCRTSFLAGS: '+RTS -M5G -A128m -RTS'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Install native dependencies
+        run: |
+          sudo .github/workflows/install_dependencies_ubuntu.sh
+          sudo apt-get install -y libgmp-dev pkg-config python3
+      - uses: haskell/ghcup-setup@v1
+        with:
+          ghc: '9.6.7'
+          cabal: recommended
+      - name: Install Haskell dependencies
+        run: |
+          cabal update
+          cabal v1-install old-time regex-compat split strict-concurrency syb
+      - name: Prepare Rust dependencies
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo fetch --locked --manifest-path dam/runtime/Cargo.toml
+      - name: Build compiler, libraries and DAM from source
+        run: python3 dam/scripts/build_compiler.py --jobs 2
+      - name: Test ordinary Bluesim
+        run: make check-smoke
+      - name: Test build tooling and transport
+        run: make -C dam check-build check-graph check-transport check-traces
+      - name: Test explicit contexts and cycle equivalence
+        run: make -C dam check-contexts check-synthesized check-headless
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: dam-linux-${{ matrix.os }}-results
+          path: |
+            dam/results/*.json
+            dam/build/context-checks/**/*.log
+            dam/build/context-checks/**/manifest.json
+            dam/build/context-checks/**/validation.json
+          if-no-files-found: warn

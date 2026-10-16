@@ -1,3 +1,7 @@
 [submodule "src/vendor/yices/v2.6/yices2"]
 	path = src/vendor/yices/v2.6/yices2
 	url = https://github.com/SRI-CSL/yices2
+
+[submodule "dam/deps/dam"]
+	path = dam/deps/dam
+	url = https://github.com/const-antin/DAM-RS.git

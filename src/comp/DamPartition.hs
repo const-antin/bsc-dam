@@ -13,16 +13,16 @@ import qualified Data.Set as S
 import Data.List (nub, sort, intercalate, isSuffixOf, isPrefixOf)
 import Data.Maybe (isJust)
 import Control.Monad (unless)
-import System.Environment (lookupEnv, unsetEnv)
+import System.Environment (lookupEnv)
 import Control.Exception (Exception, throwIO, catch)
 import Data.Typeable (Typeable)
 import Text.Read (readMaybe)
-import DamCost (groupCost, costJSON, costScore, modelJSON, bridgeJSON)
 import Prim (PrimOp(..))
 import qualified DamPlan
 import DamNecessity (wireRequirements)
+import DamHierarchy
 import Error (ErrorHandle)
-import Flags (Flags)
+import Flags (Flags(..))
 import ForeignFunctions (mkFFDecl)
 import PPrint (ppReadable)
 import Pragma (PProp(..), RulePragma(..))
@@ -121,33 +121,15 @@ components ids edges = collect (S.fromList ids)
       | otherwise = let group = visit S.empty (S.singleton (S.findMin remaining))
                     in S.toAscList group : collect (S.difference remaining group)
 
--- Scope records survive even if every annotated rule is optimized away.
-contextRequests :: SimSystem -> Bool
-contextRequests sys = any marked [p | pkg <- M.elems (ssys_packages sys), p <- sp_pps pkg]
-  where marked PPdamContext = True
-        marked (PPdamScope _ _) = True
-        marked _ = False
-
 data Fifo = Fifo AId String Integer Integer
 fifoId :: Fifo -> AId
 fifoId (Fifo i _ _ _) = i
 
 damPartition :: ErrorHandle -> Flags -> SimSystem -> IO SimSystem
-damPartition errh flags sys = attempt `catch` fallback
+damPartition errh flags sys = damPartitionChecked errh flags sys `catch` rejected
   where
-    fallback (Unsupported reason) = do
-      mode <- lookupEnv "BSC_DAM_MODE"
-      selected <- lookupEnv "BSC_DAM_PARTITION"
-      output <- lookupEnv "BSC_DAM_MANIFEST"
-      case (mode,selected,output) of
-        (Just "auto",Nothing,Just path) | not (contextRequests sys) -> do
-          writeFile path ("{\"schema\":2,\"execution\":\"bluesim\",\"reason\":" ++ show reason ++ "}\n")
-          DamPlan.writePlan (DamPlan.Fallback reason)
-          unsetEnv "BSC_DAM_MANIFEST"
-          putStrLn ("DAM fallback: " ++ reason)
-          return sys
-        _ -> ioError (userError ((if contextRequests sys then "DAM dam_context requirement failed: " else "DAM partition: ") ++ reason))
-    attempt = damPartitionChecked errh flags sys
+    rejected (Unsupported reason) =
+      ioError (userError ("DAM dam_context requirement failed: " ++ reason))
 
 damPartitionChecked :: ErrorHandle -> Flags -> SimSystem -> IO SimSystem
 damPartitionChecked errh flags sys = do
@@ -158,16 +140,19 @@ damPartitionChecked errh flags sys = do
       require (not (isJust selected)) "BSC_DAM_PARTITION requires BSC_DAM_MANIFEST"
       return sys
     Just path -> do
-      let pkg = findPkg (ssys_packages sys) (ssys_top sys)
+      hierarchy <- if hasHierarchyContexts sys
+        then case hierarchyView sys of
+          Left reason -> throwIO (Unsupported reason)
+          Right view -> return (Just view)
+        else return Nothing
+      let original = findPkg (ssys_packages sys) (ssys_top sys)
+          pkg = maybe original hvPackage hierarchy
           schedules = ssys_schedules sys
           scopes = [(name,owned) | PPdamScope name owned <- sp_pps pkg]
           requested = map fst scopes
-      require (PPdamContext `notElem` sp_pps pkg)
+      require (PPdamContext `notElem` sp_pps original)
               "dam_context on the simulation top is unsupported; annotate ordinary child modules"
-      require (not (any (\p -> sp_name p /= sp_name pkg &&
-                    any (\a -> case a of PPdamContext -> True; PPdamScope _ _ -> True; _ -> False) (sp_pps p))
-                    (M.elems (ssys_packages sys))))
-              "dam_context inside a separately synthesized child is unsupported; remove the child's synthesize boundary"
+      require (not (null requested)) "-dam requires explicit dam_context annotations"
       require (length requested == length (nub requested)) "duplicate elaborated dam_context instance identity"
       require (length schedules == 1 && all ss_posedge schedules)
               "only one positive-edge clock is supported"
@@ -216,10 +201,11 @@ damPartitionChecked errh flags sys = do
           -- All foreign calls and observable actions share one execution owner.
           -- Nested subtrees are atomic and conservatively join this owner when
           -- any foreign function exists in the design.
-          foreignRules = [arule_id r | r <- rs, hasForeign (sp_local_defs pkg) r] ++
+          localForeignRules = [arule_id r | r <- rs, hasForeign (sp_local_defs pkg) r] ++
                          [r | r <- ids, nested r, not (M.null (ssys_ffuncmap sys))]
+          foreignRules = maybe localForeignRules hvForeign hierarchy
           foreignUsers = concat [childUsers c | c <- children, not (M.null (ssys_ffuncmap sys))]
-          uses = [(arule_id r, ruleCalls (sp_local_defs pkg) r) | r <- rs]
+          uses = maybe [(arule_id r, ruleCalls (sp_local_defs pkg) r) | r <- rs] hvUses hierarchy
           side m | m `elem` ["enq","notFull","i_notFull"] = "send"
                  | m `elem` ["deq","first","notEmpty","i_notEmpty"] = "receive"
                  | otherwise = "unsupported"
@@ -246,7 +232,8 @@ damPartitionChecked errh flags sys = do
                 | p <- M.elems (ssys_packages sys),
                   r <- sp_rules p ++ concatMap aIfaceRules (sp_interface p),
                   a <- arule_actions r]) "unsupported nested system task"
-      layout <- lookupEnv "BSC_DAM_LAYOUT"
+      obsoleteLayout <- lookupEnv "BSC_DAM_LAYOUT"
+      require (not (isJust obsoleteLayout)) "BSC_DAM_LAYOUT is unsupported; use dam_context annotations"
       -- One star per resource has the same connected components as the
       -- quadratic clique of all rule pairs sharing it. These edges express
       -- co-ownership only; execution order still comes from BSC's schedule.
@@ -262,7 +249,7 @@ damPartitionChecked errh flags sys = do
           ordered = [(getSchedNodeId a,getSchedNodeId b) |
                       s <- schedules, (a,bs) <- ss_sched_graph s, b <- bs,
                       getSchedNodeId a /= getSchedNodeId b]
-          nestedOwners = concat [childRules c ++ childUsers c | c <- children]
+          nestedOwners = if isJust hierarchy then ids else concat [childRules c ++ childUsers c | c <- children]
           -- An explicit ordinary-module context owns synthesized instances
           -- allocated during its elaboration, including their nested rules.
           -- Unowned subtrees retain the conservative common owner. Subtrees
@@ -279,21 +266,13 @@ damPartitionChecked errh flags sys = do
              (inst,modName) <- M.toList (ssys_instmap sys), not (null inst),
              Just p <- [M.lookup modName packagesByName]]
           subtree c = M.findWithDefault [] (getIdString c) subtrees
-          packageCosts = M.map (\p -> groupCost (sp_local_defs p)
-                            (sp_rules p ++ concatMap aIfaceRules (sp_interface p))) packagesByName
-          childCost c = M.unionsWith (+)
-            [M.findWithDefault M.empty (getIdString (sp_name p)) packageCosts | p <- subtree c]
-          nestedCost = M.unionsWith (+) (map childCost children)
-          costFor g = M.unionsWith (+)
-            (groupCost (sp_local_defs pkg) [r | r <- rs, arule_id r `elem` g] :
-             [childCost c | c <- children, any (`elem` g) (childRules c ++ childUsers c)])
           childEffects c = or [case a of ACall {} -> False; _ -> True
                               | p <- subtree c,
                                 r <- sp_rules p ++ concatMap aIfaceRules (sp_interface p),
                                 a <- arule_actions r]
           conservativeOwners = concat [childRules c ++ childUsers c | c <- children,
                                        length (childScopes c) /= 1 || childEffects c]
-          effectRules = nub (foreignRules ++ foreignUsers ++ map fst effects ++ conservativeOwners)
+          effectRules = nub (foreignRules ++ foreignUsers ++ maybe (map fst effects) hvEffects hierarchy ++ conservativeOwners)
           -- Reuse membership lists in every ownership/leak check. Rebuilding
           -- descendant rule lists per outside rule makes large contexts cubic.
           contextRuleMap = M.fromList
@@ -301,12 +280,12 @@ damPartitionChecked errh flags sys = do
                    concat [childRules c | c <- children, name `elem` childScopes c]) | name <- requested]
           contextRules name = M.findWithDefault [] name contextRuleMap
           contextEdges = concatMap (star . contextRules) requested
+          annotated = S.fromList (concatMap contextRules requested)
+          mainRules = filter (`S.notMember` annotated) ids
+          -- Unannotated logic is one main worker, never an inferred partition.
+          mainEdges = star mainRules
           dependencyEdges = shared ++ conflicts ++ ordered ++ hierarchyEdges ++ star effectRules
-          rawGroups = components (sort ids) (dependencyEdges ++ contextEdges)
-          groups = case layout >>= readMaybe of
-            Just labels | length labels == length rawGroups && all (>= (0::Int)) labels ->
-              [sort (concat [g | (g,l) <- zip rawGroups labels, l == k]) | k <- sort (nub labels)]
-            _ -> rawGroups
+          groups = components (sort ids) (dependencyEdges ++ contextEdges ++ mainEdges)
           owner r = head [n | (n,g) <- zip [0::Int ..] groups, r `elem` g]
           owners i which = nub [owner r | (r,us) <- uses, (j,m) <- us, i == j, side m == which]
           cuts = [(f,head a,head b) | f <- fifos, let i=fifoId f,
@@ -341,18 +320,11 @@ damPartitionChecked errh flags sys = do
                         ",\"batch_safe\":" ++ (if any (`elem` (foreignRules ++ foreignUsers)) g then "false" else "true") ++
                         ",\"unused_memories\":" ++ jlist (map show (unusedMemories n)) ++
                         ",\"required_inputs\":" ++ jlist [jlist (map (show . getIdString) (reqFor proven n r)) | r <- rs, arule_id r `elem` g] ++
-                        ",\"required_inputs_by_rule\":{" ++ intercalate "," [show (getIdString (arule_id r)) ++ ":" ++ jlist (map (show . getIdString) (reqFor proven n r)) | r <- rs, arule_id r `elem` g] ++ "}" ++
-                        ",\"static_cost\":" ++ costJSON (costFor g) ++ "}"
+                        ",\"required_inputs_by_rule\":{" ++ intercalate "," [show (getIdString (arule_id r)) ++ ":" ++ jlist (map (show . getIdString) (reqFor proven n r)) | r <- rs, arule_id r `elem` g] ++ "}}"
           jcut (Fifo i p w d,a,b) = "{\"name\":" ++ show (getIdString i) ++ ",\"primitive\":" ++ show p ++
               ",\"width\":" ++ show w ++ ",\"depth\":" ++ show d ++ ",\"producer\":" ++ show a ++
               ",\"consumer\":" ++ show b ++ "}"
-      case layout of
-        Nothing -> return ()
-        Just value -> require (case readMaybe value :: Maybe [Int] of
-                      Just labels -> length labels == length rawGroups && all (>= 0) labels
-                      Nothing -> False) "invalid partition layout"
-      -- A requested context is exact: no outside rules may be absorbed, and
-      -- neither optimization nor the cost selector may split or merge it.
+      -- A context is exact: validation may neither split it nor absorb rules.
       require (all (\r -> length [n | RPdamContext n <- arule_pragmas r] <= 1) rs)
               "nested or overlapping dam_context annotations cannot own the same rule"
       require (all ((<= 1) . length . childScopes) children)
@@ -372,26 +344,29 @@ damPartitionChecked errh flags sys = do
         require (null leaks) ("dam_context " ++ show name ++
           " exposes non-FIFO state to outside rules: " ++
           show [(getIdString r,getIdString i) | (r,i) <- nub leaks])) scopes
-      require (length groups > 1 && not (null cuts)) "no independent FIFO-connected partitions"
+      let mainPartition = case mainRules of [] -> Nothing; r:_ -> Just (owner r)
+          workerCount = length requested + if null mainRules then 0 else 1
+      require (length groups == workerCount) "each worker must be an annotated context or the single main worker"
+      require (damWorkers flags == 0 || workerCount <= damWorkers flags)
+              ("dam_context requirements need " ++ show workerCount ++
+               " workers (including main), exceeding -dam-workers " ++ show (damWorkers flags))
+      require (length groups > 1 && not (null cuts)) "DAM requires at least two FIFO-connected workers"
       proven <- wireRequirements errh flags pkg wires
                   [(r,inputIds (owner (arule_id r))) | r <- rs,
                     safeGroup (groups !! owner (arule_id r))]
       DamPlan.writePlan (DamPlan.Plan
-        (map (map getIdString) groups) (map (costScore . costFor) groups)
-        (costScore (M.unionWith (+) (groupCost (sp_local_defs pkg) rs) nestedCost))
+        (map (map getIdString) groups)
         [(getIdString i,w,d,a,b) | (Fifo i _ w d,a,b) <- cuts]
         [any (`elem` (foreignRules ++ foreignUsers)) g | g <- groups]
         [ppReadable (mkFFDecl f) | f <- M.elems (ssys_ffuncmap sys)]
-        [(name,owner (head (contextRules name))) | name <- requested])
-      writeFile path ("{\"schema\":2,\"top\":" ++ show (getIdString (ssys_top sys)) ++
+        [(name,owner (head (contextRules name))) | name <- requested] mainPartition)
+      writeFile path ("{\"schema\":3,\"protocol_version\":5,\"top\":" ++ show (getIdString (ssys_top sys)) ++
                       ",\"execution\":\"dam\",\"synthesis_packages\":" ++ show (M.size (ssys_packages sys)) ++
                       ",\"required_contexts\":" ++ jlist ["{\"instance\":" ++ show name ++ ",\"partition\":" ++ show (owner (head (contextRules name))) ++ "}" | name <- requested] ++
+                      ",\"main_partition\":" ++ maybe "null" show mainPartition ++
                       ",\"partitions\":" ++ jlist (map (jgroup proven) (zip [0::Int ..] groups)) ++
                       ",\"channels\":" ++ jlist (map jcut cuts) ++
-                      ",\"foreign_declarations\":" ++ jlist [show (ppReadable (mkFFDecl f)) | f <- M.elems (ssys_ffuncmap sys)] ++
-                      ",\"cost_model\":" ++ modelJSON ++
-                      ",\"static_total\":" ++ costJSON (M.unionWith (+) (groupCost (sp_local_defs pkg) rs) nestedCost) ++
-                      ",\"bridge_cost\":" ++ bridgeJSON (length groups) [(w,a,b) | (Fifo _ _ w _,a,b) <- cuts] ++ "}\n")
+                      ",\"foreign_declarations\":" ++ jlist [show (ppReadable (mkFFDecl f)) | f <- M.elems (ssys_ffuncmap sys)] ++ "}\n")
       putStrLn ("DAM partition: " ++ show (length groups) ++ " partitions, " ++ show (length cuts) ++ " FIFO cuts")
       case selected of
         Nothing -> return sys

@@ -514,14 +514,10 @@ traceflags = [
 defaultFlags :: String -> Flags
 defaultFlags bluespecdir = Flags {
         damEnable = False,
-        damForce = False,
         damRun = False,
         damVerify = False,
         damCycles = 512,
-        damWorkers = 8,
-        damIPCWeight = 100,
-        damWorkerOverhead = 1000,
-        damMinGain = 125,
+        damWorkers = 0,
         damRuntime = "",
         aggImpConds = True,
         allowIncoherentMatches = False,
@@ -1353,11 +1349,7 @@ externalFlags = [
 
         ("dam",
          (Toggle (\f x -> f {damEnable=x}) (showIfTrue damEnable),
-          "opportunistic DAM partitioning when linking Bluesim", Visible)),
-
-        ("dam-force",
-         (Toggle (\f x -> f {damForce=x, damEnable=x}) (showIfTrue damForce),
-          "require DAM partitioning, bypassing profitability", Visible)),
+          "require explicit dam_context partitioning when linking Bluesim", Visible)),
 
         ("dam-run",
          (Toggle (\f x -> f {damRun=x, damEnable=x}) (showIfTrue damRun),
@@ -1379,28 +1371,7 @@ externalFlags = [
                   Just n | n > 0 -> Left (f {damWorkers=n})
                   _ -> Right (cmdPosition, EPositiveIntegerArgFlag "-dam-workers"))
               (Just (FRTString (show . damWorkers))),
-          "maximum automatically selected workers", Visible)),
-
-        ("dam-ipc-weight",
-         (Arg "n" (\f s -> case mread s of
-                  Just n | n >= 0 -> Left (f {damIPCWeight=n})
-                  _ -> Right (cmdPosition, EPositiveIntegerArgFlag "-dam-ipc-weight"))
-              (Just (FRTString (show . damIPCWeight))),
-          "static work units per transmitted 32-bit word", Visible)),
-
-        ("dam-worker-overhead",
-         (Arg "n" (\f s -> case mread s of
-                  Just n | n >= 0 -> Left (f {damWorkerOverhead=n})
-                  _ -> Right (cmdPosition, EPositiveIntegerArgFlag "-dam-worker-overhead"))
-              (Just (FRTString (show . damWorkerOverhead))),
-          "static work overhead per worker cycle", Visible)),
-
-        ("dam-min-gain",
-         (Arg "n" (\f s -> case mread s of
-                  Just n | n >= 100 -> Left (f {damMinGain=n})
-                  _ -> Right (cmdPosition, EPositiveIntegerArgFlag "-dam-min-gain"))
-              (Just (FRTString (show . damMinGain))),
-          "minimum estimated gain in percent (default 125)", Visible)),
+          "optional cap on DAM workers including main (default: unlimited)", Visible)),
 
         ("dam-runtime",
          (Arg "dir" (\f s -> Left (f {damRuntime=s})) (Just (FRTString damRuntime)),

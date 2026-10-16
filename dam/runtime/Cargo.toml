@@ -1,0 +1,12 @@
+[package]
+name = "bluesim-dam-pass-demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dam = { path = "../deps/dam", default-features = false, features = ["os-threads"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace]

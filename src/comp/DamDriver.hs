@@ -87,8 +87,8 @@ damLink link errh flags top abins native
   where
     build runtime output folder = do
       let base = flags {damEnable=False, cdir=Nothing, infoDir=Nothing}
-          model :: String -> Bool -> Maybe Int -> Maybe [Int] -> Bool -> [String] -> IO DamPlan
-          model name instrument selection layout owner declarations = do
+          model :: String -> Maybe Int -> Bool -> [String] -> IO DamPlan
+          model name selection owner declarations = do
             let obj = folder </> name
             createDirectoryIfMissing True obj
             -- Prevent accidental reuse of a schedule or header from a previous
@@ -101,76 +101,48 @@ damLink link errh flags top abins native
                             "-I" ++ runtime </> "include", "-I" ++ bluespecDir flags </> "Bluesim"]
                 workerFlags = base {cdir=Just obj, infoDir=Just obj,
                     oFile=folder </> (name ++ "-model"),
-                    cxxFlags=cxxFlags base ++ ["-std=c++17","-O2"] ++ if instrument then includes else [],
+                    cxxFlags=cxxFlags base ++ ["-std=c++17","-O2"] ++ includes,
                     cLibs=if owner then cLibs base else [],
                     cLibPath=if owner then cLibPath base else [],
                     linkFlags=if owner then linkFlags base else []}
-                env = [("BSC_DAM_MANIFEST",if instrument then Just (obj </> "manifest.json") else Nothing),
-                       ("BSC_DAM_PLAN",if instrument then Just (obj </> "plan") else Nothing),
-                       ("BSC_DAM_MODE",Just (if damForce flags then "strict" else "auto")),
-                       ("BSC_DAM_PARTITION",show <$> selection),
-                       ("BSC_DAM_LAYOUT",show <$> layout)]
+                env = [("BSC_DAM_MANIFEST",Just (obj </> "manifest.json")),
+                       ("BSC_DAM_PLAN",Just (obj </> "plan")),
+                       ("BSC_DAM_PARTITION",show <$> selection)]
             sources <- if owner then return native else do
               let stub = obj </> "bdpi_stubs.cxx"
                   bodies = [takeWhile (/=';') d ++ " { std::abort(); }" | d <- declarations]
               writeFile stub ("#include <cstdlib>\nextern \"C\" {\n" ++ unlines bodies ++ "}\n")
               return [stub]
-            withEnv env (link errh workerFlags top abins (sources ++ [runtime </> "dam_runtime.o" | instrument]))
-            if instrument then readPlan (obj </> "plan") else return (Fallback "ordinary Bluesim")
-      probe <- model "reference" True Nothing Nothing True []
-      let nativeInputs = not (null native && null (cLibs flags) && null (linkFlags flags))
-          (layout,reason,score) = case probe of
-            Fallback why -> (Nothing,why,0)
-            p | nativeInputs && null (foreignDecls p) -> (Nothing,"native inputs without tracked BDPI calls",0)
-              | damForce flags && length (rules p) <= damWorkers flags ->
-                  (Just [0..length (rules p)-1],"forced DAM execution",0)
-              | damForce flags ->
-                  let (ls,_,value) = chooseLayout p (damWorkers flags) (damIPCWeight flags)
-                                       (damWorkerOverhead flags) 0
-                  in (ls,"forced DAM with statically coalesced worker limit",value)
-              | otherwise -> chooseLayout p (damWorkers flags) (damIPCWeight flags)
-                                 (damWorkerOverhead flags) (damMinGain flags)
-          decision mode extra = writeFile (folder </> "decision.json")
-            ("{\"execution\":" ++ show mode ++ ",\"reason\":" ++ show reason ++
-             ",\"estimated_parallel_work\":" ++ show score ++
-             ",\"ipc_word_weight\":" ++ show (damIPCWeight flags) ++
-             ",\"worker_overhead\":" ++ show (damWorkerOverhead flags) ++
-             ",\"minimum_gain_percent\":" ++ show (damMinGain flags) ++
-             ",\"policy\":\"all_rules_all_branches_static_heuristic\"" ++ extra ++ "}\n")
-      case layout of
-        Nothing -> do
-          let required = case probe of Fallback _ -> []; p -> requiredContexts p
-          check (not (damForce flags) && null required)
-                (if null required then reason else "dam_context requirements " ++ show (map fst required) ++ ": " ++ reason)
-          _ <- model "ordinary" False Nothing Nothing True []
-          writeExecutable output ("#!/bin/sh\nif [ \"$#\" -eq 0 ]; then set -- -m " ++ show (damCycles flags) ++ "; fi\nexec " ++ quote (folder </> "ordinary-model") ++ " \"$@\"\n")
-          decision "bluesim" ""
-          putStrLn ("DAM fallback: " ++ reason)
-          when (damRun flags || damVerify flags) $ do
-            runLogged output ["-m",show (damCycles flags)] (folder </> "ordinary.log")
-            readFile (folder </> "ordinary.log") >>= putStr
-        Just labels -> do
-          p <- if labels == [0..length (rules probe)-1] then return probe
-               else model "reference" True Nothing (Just labels) True []
-          case p of
-            Fallback why -> check False ("merged plan rejected: " ++ why)
-            _ -> return ()
-          check (null (foreignDecls p) || length (filter id (foreignOwners p)) == 1)
-                "foreign code must have exactly one owner"
-          copyFile (folder </> "reference/manifest.json") (folder </> "manifest.json")
-          forM_ [0..length (rules p)-1] $ \n -> do
-            let owner = null (foreignDecls p) || foreignOwners p !! n
-            got <- model ("partition-" ++ show n) True (Just n) (Just labels) owner (foreignDecls p)
-            check (got == p) "worker analysis changed during compilation"
-            writeExecutable (folder </> ("worker-" ++ show n))
-              ("#!/bin/sh\nexec \"$(dirname -- \"$0\")/partition-" ++ show n ++ "-model\" \"$@\"\n")
-          writeExecutable output (launcher runtime folder (damCycles flags))
-          decision "dam" (",\"workers\":" ++ show (length (rules p)) ++ ",\"layout\":" ++ show labels)
-          putStrLn ("DAM executable created: " ++ output)
-          when (damVerify flags) (verify runtime folder p (damCycles flags))
-          when (damRun flags && not (damVerify flags)) $ do
-            runLogged output [] (folder </> "run.log")
-            readFile (folder </> "run.log") >>= putStr
+            withEnv env (link errh workerFlags top abins (sources ++ [runtime </> "dam_runtime.o"]))
+            readPlan (obj </> "plan")
+      p <- model "reference" Nothing True []
+      let count = length (rules p)
+          nativeInputs = not (null native && null (cLibs flags) && null (linkFlags flags))
+      check (not nativeInputs || not (null (foreignDecls p)))
+            "native inputs without tracked BDPI calls cannot be assigned to a dam_context"
+      check (count == length (requiredContexts p) + maybe 0 (const 1) (mainWorker p))
+            "each worker must be an annotated context or the single main worker"
+      check (damWorkers flags == 0 || count <= damWorkers flags)
+            ("dam_context requirements need " ++ show count ++
+             " workers, exceeding -dam-workers " ++ show (damWorkers flags))
+      check (null (foreignDecls p) || length (filter id (foreignOwners p)) == 1)
+            "foreign code must have exactly one owner"
+      copyFile (folder </> "reference/manifest.json") (folder </> "manifest.json")
+      forM_ [0..count-1] $ \n -> do
+        let owner = null (foreignDecls p) || foreignOwners p !! n
+        got <- model ("partition-" ++ show n) (Just n) owner (foreignDecls p)
+        check (got == p) "worker analysis changed during compilation"
+        writeExecutable (folder </> ("worker-" ++ show n))
+          ("#!/bin/sh\nexec \"$(dirname -- \"$0\")/partition-" ++ show n ++ "-model\" \"$@\"\n")
+      writeExecutable output (launcher runtime folder (damCycles flags))
+      writeFile (folder </> "decision.json")
+        ("{\"execution\":\"dam\",\"policy\":\"explicit_contexts\",\"workers\":" ++ show count ++
+         ",\"main_partition\":" ++ maybe "null" show (mainWorker p) ++ "}\n")
+      putStrLn ("DAM executable created: " ++ output)
+      when (damVerify flags) (verify runtime folder p (damCycles flags))
+      when (damRun flags && not (damVerify flags)) $ do
+        runLogged output [] (folder </> "run.log")
+        readFile (folder </> "run.log") >>= putStr
 
 launcher :: FilePath -> FilePath -> Integer -> String
 launcher runtime folder cycles = unlines

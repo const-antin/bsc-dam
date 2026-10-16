@@ -22,14 +22,10 @@ import Backend
 
 data Flags = Flags {
         damEnable :: Bool,
-        damForce :: Bool,
         damRun :: Bool,
         damVerify :: Bool,
         damCycles :: Integer,
-        damWorkers :: Int,
-        damIPCWeight :: Integer,
-        damWorkerOverhead :: Integer,
-        damMinGain :: Integer,
+        damWorkers :: Int, -- optional cap; zero means unlimited
         damRuntime :: String,
         aggImpConds :: Bool,
         allowIncoherentMatches :: Bool,

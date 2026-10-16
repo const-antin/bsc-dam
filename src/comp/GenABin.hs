@@ -548,7 +548,7 @@ instance Bin MsgListFlag where
 -- should automatically verify no typos at compile-time XXX
 -- DAM driver options are not serialized.
 instance Bin Flags where
-    writeBytes (Flags _ _ _ _ _ _ _ _ _ _
+    writeBytes (Flags _ _ _ _ _ _
                 a_000 a_001 a_002 a_003 a_004 a_005 a_006 a_007 a_008 a_009
                 a_010 a_011 a_012 a_013 a_014 a_015 a_016 a_017 a_018 a_019
                 a_020 a_021 a_022 a_023 a_024 a_025 a_026 a_027 a_028 a_029
@@ -633,7 +633,7 @@ instance Bin Flags where
            a_113, a_114, a_115, a_116, a_117, a_118, a_119) <- rd_chunk7
           (a_120, a_121, a_122, a_123, a_124, a_125, a_126, a_127,
            a_128, a_129, a_130, a_131, a_132, a_133) <- rd_chunk8
-          return (Flags False False False False 512 8 100 1000 125 ""
+          return (Flags False False False 512 0 ""
                 a_000 a_001 a_002 a_003 a_004 a_005 a_006 a_007 a_008 a_009
                 a_010 a_011 a_012 a_013 a_014 a_015 a_016 a_017 a_018 a_019
                 a_020 a_021 a_022 a_023 a_024 a_025 a_026 a_027 a_028 a_029

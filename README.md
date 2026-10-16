@@ -1,151 +1,114 @@
-<div class="title-block" style="text-align: center;" align="center">
+# Parallel Bluesim with DAM
 
-# Bluespec Compiler
+Are you simulating globally synchronous Bluespec designs with locally decoupled,
+FIFO-connected blocks, and struggling with simulator performance? This repository
+extends Bluespec's built-in simulator, **Bluesim**, with parallel simulation through
+the [Dataflow Abstract Machine (DAM) simulator framework](https://doi.org/10.1109/ISCA59077.2024.00046)
+(Zhang et al., ISCA 2024).
 
-[![Version]](https://github.com/B-Lang-org/bsc/releases/tag/2026.01)
-[![License]](./COPYING)
-[![Build Status]](https://github.com/B-Lang-org/bsc/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+Annotate your modules with `(* dam_context *)` and build with `-dam`. Each annotated
+instance runs in a dedicated simulation process, connected through FIFO channels
+modeled in DAM. **All unannotated logic stays in one main worker**; if it is empty,
+no main worker is created. No other hardware-source changes are needed for designs
+that meet the requirements below.
 
-[License]:        https://img.shields.io/badge/license-BSD%203-blueviolet.svg
-[Version]:        https://img.shields.io/badge/release-2026.01-red.svg?logo=v
-[Build Status]:   https://github.com/B-Lang-org/bsc/actions/workflows/ci.yml/badge.svg?branch=main&event=push
+The compiler checks the requested boundaries and builds the workers automatically.
+It does not choose boundaries, merge contexts, or decide whether parallel execution
+is worthwhile. An invalid separation is a compiler error. Without `-dam`, the same
+annotated design can still run in ordinary Bluesim.
 
-**[Community] &bull; [Download] &bull; [Documentation] &bull; [Build] &bull; [Test] &bull; [Develop]**
+## Requirements
 
-[Community]: #community
-[Download]: #download
-[Documentation]: #documentation
-[Build]: ./INSTALL.md
-[TEST]: ./testsuite/README.md
-[Develop]: ./DEVELOP.md
+- Contexts communicate through supported registered Bluespec FIFOs, such as
+  `mkFIFO` and `mkSizedFIFO`. Payloads may be any concrete type implementing `Bits`.
+- Shared state and same-cycle dependencies must remain within a worker.
+  Pipeline/bypass FIFOs with same-cycle behavior cannot cross a context boundary.
+- The current DAM path requires one positive-edge clock, an `Empty` top, at least
+  one annotated context, and at least two FIFO-connected workers.
+- Annotations may be placed on ordinary modules or `(* synthesize *)` modules.
+  Exposed FIFO methods are checked against their underlying primitives, guards,
+  and scheduling dependencies. Nested/overlapping annotations are rejected.
+- Worker count follows the annotations automatically. Optionally,
+  `-dam-workers N` sets a hard cap including the main worker; exceeding it is an error.
 
----
+This is a research prototype with a conservative set of supported primitives and
+foreign effects. Unsupported constructs produce diagnostics. The full upstream
+compatibility suite has not yet been run.
 
-</div>
+## Example: eight BF16 systolic arrays
 
-Compiler, simulator, and tools for the **Bluespec Hardware Description
-Language**. Bluespec is a single language for digital electronic hardware designs that comes in
-two syntactic flavors, which are interchangeable:
+The [example](dam/examples/systolic/SystolicBF16.bsv) splits a GEMM's K dimension
+across eight physical 64×64 arrays. Each array produces a partial matrix; a ninth
+context reduces those matrices into one 64×64 output tile.
 
-  - Bluespec **SystemVerilog** (BSV)
-  - Bluespec **Haskell** (BH, or "Bluespec Classic")
+The two module definitions carry the annotation:
 
-Bluespec is a *high-level* hardware description language. It has a variety of
-advanced features including a powerful type system that can prevent errors
-prior to synthesis time, and its most distinguishing feature, **Guarded Atomic
-Actions**, allow you to define hardware components in a modular manner based on
-their invariants, and let the compiler pick a scheduler.
+```bsv
+(* dam_context *)
+module mkSystolicArray#(Integer shard, FIFO#(PartialRow) outputQ)(Empty);
+    // 64 spatial rows, each containing 64 BF16 processing elements.
+    // Send completed partial-result rows through outputQ.
+endmodule
 
-The toolchain was under development by [Bluespec Inc] for almost 20 years, and
-has been proven repeatedly in production designs like [Flute], [Piccolo], and
-[Shakti].
+(* dam_context *)
+module mkTerminalAdder#(Vector#(ArrayCount,FIFO#(PartialRow)) inputs)(Empty);
+    // Consume one row from each array and perform a balanced BF16 reduction.
+endmodule
+```
 
-The Bluespec compiler `bsc` emits standard Verilog for maximum compatibility
-with any synthesis toolchain and comes with an included simulator ("bluesim"),
-standard library, and TCL scripting support ("bluetcl").
+These excerpts omit the bodies; the linked source is complete. The top instantiates
+8 arrays, 8 ordinary depth-eight FIFOs, and the reducer. With `-dam`,
+BSC checks those connections and creates exactly nine workers. The top contains no
+rules, so no main worker is needed.
 
-The repository is still evolving. We welcome your feedback, issue reports,
-and pull requests.
+Parallel simulation makes sense when **each worker has considerable independent
+work between FIFO exchanges**. Here, each systolic array performs substantial
+local computation before sending completed result rows to the reducer. Running
+those arrays concurrently can outweigh the overhead of starting workers and
+communicating between processes.
 
-A separate repository, [bsc-contrib],
-exists for sharing libraries and utilities that don't (or don't yet) belong in
-the core tools.
+Small contexts with little computation and frequent FIFO exchanges may instead
+be slower than ordinary Bluesim. `dam_context` lets you choose these boundaries;
+the compiler checks that they are valid, but does not predict a speedup.
 
-A graphical environment for using BSC is available in a separate [bdw]
-repository. BDW (the BSC Development Workstation) provides a number of
-tools, including the ability to view simulation waveforms as
-source-level values.
+For a 64×16384 by 16384×64 GEMM:
 
-[Bluespec Inc]: https://bluespec.com
-[Flute]: https://github.com/bluespec/Flute
-[Piccolo]: https://github.com/bluespec/Piccolo
-[Shakti]: https://shakti.org.in
+| Host | Pure Bluesim | DAM, 9 workers | Speedup |
+|---|---:|---:|---:|
+| Apple M5 Pro, macOS | 2.806 s | 0.526 s | **5.33×** |
+| Linux (4× Xeon E7-8890 v3) | 7.497 s | 1.223 s | **6.13×** |
 
-[bsc-contrib]: https://github.com/B-Lang-org/bsc-contrib
-[bdw]: https://github.com/B-Lang-org/bdw
+Medians of five runs after one warmup, including startup, with identical BSV and
+`-O2` in both modes. The Mac has 18 logical CPUs; The Linux host has 72 physical cores and
+144 logical CPUs. Runs were unpinned. Both modes execute every simulated clock
+cycle; DAM runs the independent workers in parallel.
+All partial/final values and complete FIFO/register cycle traces matched, including
+runs with host scheduling jitter. Speedup depends on the design and chosen contexts.
+See [methodology and reproduction](dam/examples/systolic/README.md) and
+measurement samples for [macOS](dam/examples/systolic/measurements-generated.json)
+and [Linux](dam/examples/systolic/measurements-linux.json).
 
----
+## Build and run
 
-## Community
+The build helper supports Linux and macOS. It builds BSC, its libraries, Bluetcl,
+and the DAM runtime from source. Install GHC with BSC's dependencies, Rust/Cargo,
+Python 3, and the native build dependencies listed in the [build instructions](dam/README.md).
 
-To receive announcements about BSC and related projects, subscribe to
-[b-lang-announce@groups.io](https://groups.io/g/b-lang-announce).
+```sh
+git clone --recurse-submodules https://github.com/const-antin/bsc-dam.git
+cd bsc-dam
+cd dam
+cargo fetch --locked --manifest-path runtime/Cargo.toml
+python3 scripts/build_compiler.py
+make check-contexts
+make check-synthesized
+make systolic-eight-generated-benchmark
+```
 
-For questions and discussion about BSC source, subscribe to the
-developers' mailing list [bsc-dev@groups.io](https://groups.io/g/bsc-dev).
+The compiler pass and driver are native Haskell; simulation uses C++ Bluesim workers
+and the Rust DAM runtime. Python is used only for build/test and benchmark tooling.
 
-For any questions or discussion about Bluespec HDLs, using BSC, or
-related projects, subscribe to [b-lang-discuss@groups.io](https://groups.io/g/b-lang-discuss).
-
-IRC users might try joining the `#bluespec` channel on [Libera.Chat](https://libera.chat/).
-
-There's also a [bluespec](https://stackoverflow.com/questions/tagged/bluespec)
-tag on StackOverflow.
-
-And we've enabled the [Discussions](https://github.com/B-Lang-org/bsc/discussions)
-tab in this GitHub repo.
-This is a new feature to support discussion within the project itself.
-Feel free to give it a try and see if it can be useful to our community.
-
----
-
-## Download
-
-For the following systems, the Bluespec toolchain is available
-as a package that can be installed with the standard package manager:
-
-* ArchLinux AUR: [`bluespec-git`](https://aur.archlinux.org/packages/bluespec-git/) ([among others](https://aur.archlinux.org/packages/?K=bluespec))
-* Fedora ([Terra Repository](https://terrapkg.com/)): [`bsc`](https://github.com/terrapkg/packages/tree/frawhide/anda/buildsys/bsc)
-* Gentoo GURU and LiGurOS: [`sci-electronics/bluespec`](https://gitweb.gentoo.org/repo/proj/guru.git/tree/sci-electronics/bluespec)
-* Homebrew: [`bsc`](https://formulae.brew.sh/formula/bsc)
-* Nix/NixOS: [`bluespec`](https://search.nixos.org/packages?channel=20.09&from=0&size=50&sort=relevance&query=bluespec)
-
-You can also use the [Repology search engine](https://repology.org/project/bluespec/versions)
-to check for Bluespec packages for your system.
-
-If a package exists for your system, we recommend installing that.
-Otherwise, a tar-archive may be available for download from our
-[Releases](https://github.com/B-Lang-org/bsc/releases) page.
-Install instructions can be found inside the tar-file.
-
-If a pre-built tar-file does not exist for your system,
-you will need to [compile BSC from source](INSTALL.md).
-
----
-
-## Documentation
-
-More details on using BSC, Bluesim, and Bluetcl can be found in the
-[_BSC User
-Guide_](https://github.com/B-Lang-org/bsc/releases/latest/download/bsc_user_guide.pdf).
-
-The standard libraries that come with BSC are documented in the [_BSC
-Libraries Reference
-Guide_](https://github.com/B-Lang-org/bsc/releases/latest/download/bsc_libraries_ref_guide.pdf).
-
-For the specification of the Bluespec language, see the [_BSV Language
-Reference
-Guide_](https://github.com/B-Lang-org/bsc/releases/latest/download/BSV_lang_ref_guide.pdf)
-and the [_BH (Bluespec Haskell/Classic) Language Reference
-Guide_](https://github.com/B-Lang-org/bsc/releases/latest/download/BH_lang_ref_guide.pdf).
-
-The sources for these documents are found in the `doc`
-directory of this repo.  Pre-built PDF files can also be downloaded
-from the [Releases](https://github.com/B-Lang-org/bsc/releases) page.
-
-Training and tutorials can be found in the [BSVLang
-repository](https://github.com/BSVLang/Main).
-
-New users may also find this
-[Intro Guide and Quick Reference](https://github.com/kcamenzind/BluespecIntroGuide)
-useful.
-
----
-
-## License
-
-The Bluespec toolchain is provided by [Bluespec Inc] and
-available under the BSD-3-Clause license.
-The source code also includes several other components under
-various license agreements (all of it open/copyleft software).
-See [`COPYING`](COPYING) for copyright and license details.
+Based on [B-Lang-org/bsc](https://github.com/B-Lang-org/bsc) commit
+`63665af1d123270f508d1af0d775a7d243d7eb4f`. Compiler changes are in `src/comp/Dam*.hs`;
+the runtime, tests, and example are under `dam/`. Upstream notices remain in
+[COPYING](COPYING); DAM retains its MIT/Apache-2.0 licenses.

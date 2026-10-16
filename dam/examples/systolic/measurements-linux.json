@@ -1,0 +1,389 @@
+{
+  "host": {
+    "platform": "Linux-5.15.0-170-generic-x86_64-with-glibc2.35",
+    "logical_cpus": 144,
+    "cpu": "Intel Xeon E7-8890 v3 @ 2.50 GHz",
+    "sockets": 4,
+    "physical_cores": 72,
+    "distribution": "Ubuntu 22.04.5 LTS"
+  },
+  "shape": {
+    "m": 64,
+    "n": 64,
+    "max_k": 16384,
+    "arrays": 8,
+    "reduction_tree_levels": 3,
+    "pes_per_array": 4096,
+    "contexts": {
+      "arrays_0": 8,
+      "arrays_1": 7,
+      "arrays_2": 6,
+      "arrays_3": 5,
+      "arrays_4": 4,
+      "arrays_5": 3,
+      "arrays_6": 2,
+      "arrays_7": 1,
+      "terminal": 0
+    },
+    "generated_accumulators": {
+      "arrays_0": 4096,
+      "arrays_1": 4096,
+      "arrays_2": 4096,
+      "arrays_3": 4096,
+      "arrays_4": 4096,
+      "arrays_5": 4096,
+      "arrays_6": 4096,
+      "arrays_7": 4096
+    }
+  },
+  "repeats": 5,
+  "notes": "Same BSV and -O2; native headless loaders both sides. BF16 operands, separately rounded multiply/add and balanced BF16 reduction tree. 8 K shards; BSV counter-based synthetic operands, no input/config files or memories; no HBM/bus model. Each fresh process computes one 64x64 output tile. Startup, initialization, output and reporting included. Both modes execute every simulated clock cycle. All builds and full trace verification finish before alternating warmup + repeated timing. Required annotations enforce exactly 9 explicit contexts.",
+  "baseline_build": {
+    "compiler_sha256": "cf56d5011c5e412b60ee10de98ddf709fe30bc2e85f222c72840a31e7a343f2c",
+    "input_mode": "bsv-generated",
+    "flags": [
+      "-O2"
+    ],
+    "note": "Both modes built from identical BSV with first-MAC initialization."
+  },
+  "input_mode": "bsv-generated",
+  "date": "2026-10-16",
+  "full_report": "results/linux-full-eight-20261016/summary.json",
+  "cpu_affinity": "Unpinned; shared machine",
+  "toolchain": {
+    "ghc": "9.6.7",
+    "gcc": "10.5.0",
+    "rust": "1.92.0"
+  },
+  "implementation_hashes": {
+    "examples/systolic/benchmark.py": "0491400c884b287df417a10645b1e8b98dba37f62b47c486dcbe7e1c2ad212a2",
+    "examples/systolic/SystolicBF16.bsv": "87761d2e26a50108f29afe2ef9d6dc56ca37226dbe9d790b5425935277526a39",
+    "examples/systolic/reference.py": "96b2688dd5f4c8f2e6c84447040cbf1cd5185a2b892608650cd84ad5f688f825",
+    "build/systolic/arrays8-maxk16384-generated-k16384/SystolicConfig.bsv": "89ddccb1a8b41cc9b21216b1e4d8bcd7e6e93e4aa9c1c9ca42f48b1a6ac9ad53",
+    "build/systolic/arrays8-maxk16384-generated-k16384/plain.so": "b35c53e314665e090543b38d582e2fadd033083d9dd5c6ee28e6b80d5d856772",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/manifest.json": "1919c34bb68f72f148a97a9896a6355f61fc2c4de5861382bc89c1b1f5df7cd9",
+    "bin/bsc-dam-core": "cf56d5011c5e412b60ee10de98ddf709fe30bc2e85f222c72840a31e7a343f2c",
+    "lib/DAM/dam-runtime": "e7463ed497c6eac99688efffb134d1a946a8f5b4f8c84a5bc5a4ef25cf9617aa",
+    "lib/DAM/bluesim-headless": "9fedfdfb447695c7e83ffedfc326618ac5047be5f41593ffd0a3a940e9c04191",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-0-model.so": "257436c7e00b18220feef0fea4e5fe665ec6d2d9f293b78c45e139ec49a4c9b1",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-1-model.so": "e6291ce05293767f936a672378ae9fcd55ee42ab587f831ecc0303e2004ed604",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-2-model.so": "4159473b773a9671476aeec8f0fb3293f440c6d0583f1e381b5f1fdfac088b71",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-3-model.so": "db2197ac5b0fc31fa32317727d6a1864b88f02414af76e31088929984cc098ec",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-4-model.so": "3b685536f60a02f3681895ce39a84c269c7f58052c30c7d2526948705ecd6048",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-5-model.so": "399a9802de4d26a5fbc67bc77ee44768c30e4640d3af2974c72da16c586bb54d",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-6-model.so": "7f27af235659f493f0550b0ad942bfbefa5b5e8929d9f5b8b1aabb20c6ac8a91",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-7-model.so": "e3892eb0cffe631d484194742f41e4e4308d575d6436d38dbc0d1816dfc5133a",
+    "build/systolic/arrays8-maxk16384-generated-k16384/sim.dam/partition-8-model.so": "d32fd9b95434ed6a4590b4849f8ad882026f71fcc73687b58bffb426008822d8"
+  },
+  "rows": [
+    {
+      "k": 16384,
+      "macs": 67108864,
+      "medians": {
+        "bluesim": {
+          "wall": 7.496922507882118,
+          "cpu": 7.496431999999999
+        },
+        "dam": {
+          "wall": 1.2228589802980423,
+          "cpu": 9.769127000000175
+        }
+      },
+      "speedup": 6.130651717547124,
+      "first8": [
+        0.9921875,
+        3.140625,
+        -1.578125,
+        -0.390625,
+        -2.90625,
+        0.359375,
+        -0.42578125,
+        1.3046875
+      ],
+      "errors_vs_fp32": {
+        "relative_l2": 0.05378401404428176,
+        "max_abs": 0.8768794536590576,
+        "rmse": 0.15739307095475824
+      },
+      "errors_vs_exact_bf16_inputs": {
+        "relative_l2": 0.05378402491218027,
+        "max_abs": 0.8768794536590576,
+        "rmse": 0.15739310543519638
+      },
+      "completion_cycle": 2238,
+      "sha256": "909982dec9c5e98c79dc951c780c43395ea5425a1e556b566985f9be53060641",
+      "equivalence": {
+        "passed": true,
+        "cycles": 2244,
+        "outputs": 4096,
+        "partial_outputs": 32768,
+        "dam": {
+          ".trace": {
+            "events": 1024,
+            "cycles": 65,
+            "comparison": "exact chronological multiset"
+          },
+          ".state": {
+            "events": 201346748,
+            "cycles": 2244,
+            "comparison": "exact chronological multiset"
+          }
+        },
+        "jitter": {
+          ".trace": {
+            "events": 1024,
+            "cycles": 65,
+            "comparison": "exact chronological multiset"
+          },
+          ".state": {
+            "events": 201346748,
+            "cycles": 2244,
+            "comparison": "exact chronological multiset"
+          }
+        }
+      },
+      "samples": {
+        "bluesim": [
+          {
+            "load_before": [
+              1.79638671875,
+              1.79150390625,
+              1.36962890625
+            ],
+            "load_after": [
+              1.732421875,
+              1.7783203125,
+              1.3671875
+            ],
+            "wall": 7.4483388885855675,
+            "cpu": 7.447407999999946,
+            "user_cpu": 7.411411000000044,
+            "system_cpu": 0.03599700000000183
+          },
+          {
+            "load_before": [
+              1.732421875,
+              1.7783203125,
+              1.3671875
+            ],
+            "load_after": [
+              1.693359375,
+              1.76904296875,
+              1.3681640625
+            ],
+            "wall": 7.431743811815977,
+            "cpu": 7.431192000000138,
+            "user_cpu": 7.423193000000083,
+            "system_cpu": 0.007998999999998091
+          },
+          {
+            "load_before": [
+              1.693359375,
+              1.76904296875,
+              1.3681640625
+            ],
+            "load_after": [
+              1.58642578125,
+              1.7431640625,
+              1.36328125
+            ],
+            "wall": 7.496922507882118,
+            "cpu": 7.496431999999999,
+            "user_cpu": 7.472430999999915,
+            "system_cpu": 0.02400100000000549
+          },
+          {
+            "load_before": [
+              1.58642578125,
+              1.7431640625,
+              1.36328125
+            ],
+            "load_after": [
+              1.5390625,
+              1.73046875,
+              1.361328125
+            ],
+            "wall": 7.55778481066227,
+            "cpu": 7.557180999999979,
+            "user_cpu": 7.545184999999947,
+            "system_cpu": 0.011995999999996343
+          },
+          {
+            "load_before": [
+              2.056640625,
+              1.8349609375,
+              1.3974609375
+            ],
+            "load_after": [
+              2.0517578125,
+              1.837890625,
+              1.40087890625
+            ],
+            "wall": 7.5001458413898945,
+            "cpu": 7.49990599999979,
+            "user_cpu": 7.471906999999874,
+            "system_cpu": 0.027999000000001217
+          }
+        ],
+        "dam": [
+          {
+            "load_before": [
+              1.79638671875,
+              1.79150390625,
+              1.36962890625
+            ],
+            "load_after": [
+              1.79638671875,
+              1.79150390625,
+              1.36962890625
+            ],
+            "wall": 1.2260853573679924,
+            "cpu": 9.779915999999972,
+            "user_cpu": 9.377017000000023,
+            "system_cpu": 0.4028989999999979,
+            "executed_cycles": 20196,
+            "skipped_clock_cycles": 0,
+            "exchanges": 588,
+            "batched_clock_cycles": 19608,
+            "wire_bytes": 188928,
+            "pending_polls": 590329,
+            "startup_max": 0.031517475
+          },
+          {
+            "load_before": [
+              1.693359375,
+              1.76904296875,
+              1.3681640625
+            ],
+            "load_after": [
+              1.693359375,
+              1.76904296875,
+              1.3681640625
+            ],
+            "wall": 1.2357745207846165,
+            "cpu": 9.852454999999793,
+            "user_cpu": 9.379960999999867,
+            "system_cpu": 0.47249400000000463,
+            "executed_cycles": 20196,
+            "skipped_clock_cycles": 0,
+            "exchanges": 588,
+            "batched_clock_cycles": 19608,
+            "wire_bytes": 188928,
+            "pending_polls": 510446,
+            "startup_max": 0.031393477
+          },
+          {
+            "load_before": [
+              1.693359375,
+              1.76904296875,
+              1.3681640625
+            ],
+            "load_after": [
+              1.693359375,
+              1.76904296875,
+              1.3681640625
+            ],
+            "wall": 1.2228589802980423,
+            "cpu": 9.769127000000175,
+            "user_cpu": 9.304403000000093,
+            "system_cpu": 0.4647239999999968,
+            "executed_cycles": 20196,
+            "skipped_clock_cycles": 0,
+            "exchanges": 588,
+            "batched_clock_cycles": 19608,
+            "wire_bytes": 188928,
+            "pending_polls": 636725,
+            "startup_max": 0.031282295
+          },
+          {
+            "load_before": [
+              1.5390625,
+              1.73046875,
+              1.361328125
+            ],
+            "load_after": [
+              2.056640625,
+              1.8349609375,
+              1.3974609375
+            ],
+            "wall": 1.2220563367009163,
+            "cpu": 9.734119000000227,
+            "user_cpu": 9.34314200000017,
+            "system_cpu": 0.39097699999999946,
+            "executed_cycles": 20196,
+            "skipped_clock_cycles": 0,
+            "exchanges": 588,
+            "batched_clock_cycles": 19608,
+            "wire_bytes": 188928,
+            "pending_polls": 329163,
+            "startup_max": 0.041686474
+          },
+          {
+            "load_before": [
+              2.056640625,
+              1.8349609375,
+              1.3974609375
+            ],
+            "load_after": [
+              2.056640625,
+              1.8349609375,
+              1.3974609375
+            ],
+            "wall": 1.211169421672821,
+            "cpu": 9.672971000000018,
+            "user_cpu": 9.26580100000001,
+            "system_cpu": 0.4071700000000007,
+            "executed_cycles": 20196,
+            "skipped_clock_cycles": 0,
+            "exchanges": 588,
+            "batched_clock_cycles": 19608,
+            "wire_bytes": 188928,
+            "pending_polls": 519499,
+            "startup_max": 0.041650756
+          }
+        ]
+      },
+      "warmups": {
+        "bluesim": {
+          "load_before": [
+            1.27880859375,
+            1.6982421875,
+            1.33544921875
+          ],
+          "load_after": [
+            1.25634765625,
+            1.6865234375,
+            1.33349609375
+          ],
+          "wall": 7.52350876480341,
+          "cpu": 7.523110000000116,
+          "user_cpu": 7.499113000000079,
+          "system_cpu": 0.023996999999994273
+        },
+        "dam": {
+          "load_before": [
+            1.25634765625,
+            1.6865234375,
+            1.33349609375
+          ],
+          "load_after": [
+            1.79638671875,
+            1.79150390625,
+            1.36962890625
+          ],
+          "wall": 1.2135101109743118,
+          "cpu": 9.684475999999947,
+          "user_cpu": 9.282402999999931,
+          "system_cpu": 0.40207300000000146,
+          "executed_cycles": 20196,
+          "skipped_clock_cycles": 0,
+          "exchanges": 588,
+          "batched_clock_cycles": 19608,
+          "wire_bytes": 188928,
+          "pending_polls": 459495,
+          "startup_max": 0.031410834
+        }
+      }
+    }
+  ]
+}

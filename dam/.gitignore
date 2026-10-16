@@ -1,0 +1,10 @@
+/bin/
+/build/
+/deps/
+/lib/
+/results/
+/runtime/target/
+__pycache__/
+*.o
+*.so
+*.dylib
