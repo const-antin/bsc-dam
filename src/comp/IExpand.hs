@@ -364,7 +364,8 @@ iExpand errh flags symt alldefs atf_cache is_noinlined_func pps def@(IDef mi _ _
             else Nothing
 
       -- the expanded module
-      imod0 = IModule mi is_noinlined_func mbe wi [] iks args
+      imod0 = IModule mi is_noinlined_func mbe wi
+                     [Pproperties mi (go_dam_scopes go)] iks args
                      (go_clock_domains go) (go_resets go)
                      insts' (go_port_types go)
                      defs rules_cleanup ifc'
@@ -1343,7 +1344,10 @@ handlePrim isMFix curClkRstn ns p eee@(IAps prim@(ICon _ (ICPrim _ PrimStateAttr
          let comments = [line | PPdoc comment <- map snd as,
                                 line <- lines comment]
          addSubmodComments instname comments
-         iExpandModule isMFix curClkRstn ns p em
+         let expand = iExpandModule isMFix curClkRstn ns p em
+         if PPdamContext `elem` map snd as
+           then withDamContext (getIdString instname) expand
+           else expand
      _ -> nfError "PrimStateAttrib" e'
 
 handlePrim isMFix curClkRstn ns p ea@(IAps (ICon _ (ICPrim { primOp = PrimModuleBind })) [t1, t2] [e1, e2]) = do

@@ -60,7 +60,8 @@ combine_refs (DF w1 r1) (DF w2 r2) = DF (w1 `S.union` w2) (r1 `S.union` r2)
 -- Get the AIds read or written by a SimCCFn
 getFnRefs :: Bool -> SimCCFn -> [(AId, DefRecord)]
 getFnRefs is_sched fn = concatMap (helper (sf_name fn, is_sched)) (sf_body fn)
-  where helper fl (SFSDef _ (_,_)   Nothing)  = []
+  where helper _ (SFSHostCall _) = []
+        helper fl (SFSDef _ (_,_)   Nothing)  = []
         helper fl (SFSDef _ (_,aid) (Just e)) = (fl `writesIds` [aid]) ++
                                                 (fl `readsIds` (aVars e))
         helper fl (SFSAssign _ aid e)         = (fl `writesIds` [aid]) ++

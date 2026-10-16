@@ -3,6 +3,8 @@ module Main_bsc(main, hmain) where
 
 -- Haskell libs
 import Prelude
+import DamDriver (damLink, damAfterCompile)
+import DamPartition (damPartition, damInstrument, damHeader)
 import System.Environment(getArgs, getProgName)
 import System.Process(runInteractiveProcess, waitForProcess)
 import System.Process(system)
@@ -217,6 +219,7 @@ hmain args = do
         DBlueSrc flags src ->
             do { setFlags flags; doWarnings; showPreamble flags;
                  main' errh flags src;
+                 damAfterCompile simLink errh flags;
                  exitOK errh }
         DVerLink flags top verSrcFiles abinFiles cSrcFiles ->
             do { setFlags flags; doWarnings; showPreamble flags;
@@ -224,7 +227,7 @@ hmain args = do
                  exitOK errh }
         DSimLink flags top abinFiles cSrcFiles ->
             do { setFlags flags; doWarnings; showPreamble flags;
-                 simLink errh flags top abinFiles cSrcFiles;
+                 damLink simLink errh flags top abinFiles cSrcFiles;
                  exitOK errh }
 
 
@@ -961,7 +964,7 @@ genModule
            else return (t, [], Nothing)
 
     t <- if (genABin flags)
-         then writeABin errh pps flags dumpnames t prefix
+         then writeABin errh (pps ++ [p | Pproperties _ ps <- imod_pragmas imod0, p <- ps]) flags dumpnames t prefix
                   modstr srcName (orig_cqt wi)
                   sched_info'' methodConflict vPathInfo
                   amod_final vprog
@@ -1301,7 +1304,8 @@ genModuleC errh flags dumpnames time0 toplevel abis =
 
        -- optimize the SimPackages and SimSchedules
        start flags DFsimPackageOpt
-       sim_system_opt <- simPackageOpt errh flags sim_system
+       sim_system_optimized <- simPackageOpt errh flags sim_system
+       sim_system_opt <- damPartition errh flags sim_system_optimized
        time <- dump errh flags time DFsimPackageOpt dumpnames sim_system_opt
 
        -- convert SimPackages and SimSchedules to SimCCBlocks and SimCCScheds
@@ -1320,6 +1324,8 @@ genModuleC errh flags dumpnames time0 toplevel abis =
        let simBlockInfo = (simblocks_opt, simCCscheds_opt, clk_groups_opt, gate_info_opt)
        time <- dump errh flags time DFsimCOpt dumpnames simBlockInfo
 
+       simCCscheds_dam <- damInstrument simCCscheds_opt
+
        -- get the map of ForeignFunctions
        let ff_map = ssys_ffuncmap sim_system_opt
 
@@ -1333,7 +1339,8 @@ genModuleC errh flags dumpnames time0 toplevel abis =
              encoded_name <- mkEncodedName name
              let full_name = getFullFilePath encoded_name
                  rel_name = getRelativeFilePath encoded_name
-             writeFileCatch errh full_name ((commentC blurb) ++ file)
+             dam_include <- damHeader name
+             writeFileCatch errh full_name ((commentC blurb) ++ dam_include ++ file)
              _<- dumpStr errh flags t_start DFwriteC dumpnames name
              return rel_name
 
@@ -1352,7 +1359,7 @@ genModuleC errh flags dumpnames time0 toplevel abis =
                                    ff_map
                                    reused
                                    simblocks_opt
-                                   simCCscheds_opt
+                                   simCCscheds_dam
                                    clk_groups_opt
                                    gate_info_opt
                                    writeFileC

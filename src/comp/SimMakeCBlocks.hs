@@ -953,6 +953,7 @@ mapActionIds fn act = mapAActions (aIdFnToAActionFn fn) act
 addScope :: String -> SimCCFnStmt -> SimCCFnStmt
 -- if the scope is empty, do nothing
 addScope "" x = x
+addScope _ x@(SFSHostCall _) = x
 addScope scope (SFSDef p (ty,aid) (Just v)) =
   let aid' = aid `inlineIdFrom` scope
       v'   = v `inlineExprFrom` scope

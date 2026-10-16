@@ -21,6 +21,16 @@ import Backend
 -- This is the data structure which will be carried through the program.
 
 data Flags = Flags {
+        damEnable :: Bool,
+        damForce :: Bool,
+        damRun :: Bool,
+        damVerify :: Bool,
+        damCycles :: Integer,
+        damWorkers :: Int,
+        damIPCWeight :: Integer,
+        damWorkerOverhead :: Integer,
+        damMinGain :: Integer,
+        damRuntime :: String,
         aggImpConds :: Bool,
         allowIncoherentMatches :: Bool,
         backend :: Maybe Backend,

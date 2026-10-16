@@ -8,7 +8,7 @@ module IExpandUtils(
         HExpr, HeapData(..), HClock, HReset, HInout, HStateVar, HRules, HWireSet, HDef, HRule, HEFace,
         runG, G, GOutput(..),
         errG, errsG, deferErrors, eWarning, eWarnings, getElabProgressContext,
-        eNoNF, addRules,
+        eNoNF, addRules, withDamContext,
         pushTopModuleSchedNameScope, pushModuleSchedNameScope,
         popModuleSchedNameScope,
         pushRuleSchedNameScope, popRuleSchedNameScope,
@@ -101,7 +101,7 @@ import ISyntaxUtil
 import Prim
 import Wires
 import IWireSet
-import Pragma(PProp(..), SPIdMap, substSchedPragmaIds,
+import Pragma(RulePragma(..), PProp(..), SPIdMap, substSchedPragmaIds,
               extractSchedPragmaIds, removeSchedPragmaIds)
 import Util
 import Verilog(vKeywords, vIsValidIdent)
@@ -522,6 +522,8 @@ data GState = GState {
         -- mapping an instance name to its user-added comments
         -- XXX we use Id, just to have a position around; String would do
         commentsMap    :: !(M.Map Id [String]),
+        damContextStack :: [String],
+        damContextScopes :: [PProp],
 
         ffcallNo       :: !Int,   -- to generate unique names for ActionValue foreign function calls
 
@@ -624,6 +626,7 @@ initGState errh flags symt alldefs atf_cache defId is_noinlined_func pps =
                       stateNameMap = M.empty,
                       stateLocMap = M.empty,
                       commentsMap = M.empty,
+                      damContextStack = [], damContextScopes = [],
                       ffcallNo = 0,
                       newClockId = initClockId,
                       newClockDomain = initClockDomain,
@@ -676,6 +679,7 @@ data GOutput a = GOutput { go_clock_domains :: [(ClockDomain, [HClock])],
                            go_hp :: HeapPointer,
                            go_profile :: M.Map Id (M.Map Position Int),
                            go_comments_map :: [(Id,[String])],
+                           go_dam_scopes :: [PProp],
                            go_backend_specific :: Bool,
                            go_ffcallNo :: Int,
                            go_atfCache :: IATFCache,
@@ -733,6 +737,7 @@ runG errh flags symt alldefs atf_cache defId is_noinlined_func pps gFn =
                      go_hp = hp gs',
                      go_profile = profilingMap gs',
                      go_comments_map = M.toList (commentsMap gs'),
+                     go_dam_scopes = reverse (damContextScopes gs'),
                      go_backend_specific = backend_specific gs',
                      go_ffcallNo = ffcallNo gs',
                      go_atfCache = atfCache gs',
@@ -810,6 +815,19 @@ step i = do s <- get
 
 -- ---------------
 
+-- Capture actual elaboration ownership, never infer it from name prefixes.
+-- Record empty scopes too: optimization must not silently erase a request.
+withDamContext :: String -> G a -> G a
+withDamContext name action = do
+  before <- get
+  put before { damContextStack = name : damContextStack before }
+  result <- action
+  after <- get
+  let owned = map fst (vars after) \\ map fst (vars before)
+  put after { damContextStack = damContextStack before,
+              damContextScopes = PPdamScope name owned : damContextScopes after }
+  return result
+
 addRules :: HRules -> G ()
 addRules rs = do
   s <- get
@@ -855,12 +873,13 @@ addRules rs = do
   put (s { schedNameScope = newScope })
   -- add the rules themselves to the monad
   s <- get
-  let new_rules =
+  let tagged = [r { irule_pragmas = map RPdamContext (damContextStack s) ++ irule_pragmas r } | r <- rs2]
+      new_rules =
           -- As the size of rs1 grows, it's more efficient to add to the front
           -- XXX We should consider a better data structure
           if (ruleNameCheck flags)
-          then (IRules (sps1 ++ sps2) (rs1 ++ rs2))
-          else (IRules (sps2 ++ sps1) (rs2 ++ rs1))
+          then (IRules (sps1 ++ sps2) (rs1 ++ tagged))
+          else (IRules (sps2 ++ sps1) (tagged ++ rs1))
   put (s { rules = new_rules } )
 
 checkAddRulesAttributes :: IStateLoc -> M.Map Id SchedNameInfo -> IRules a ->

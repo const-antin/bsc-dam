@@ -4424,7 +4424,12 @@ the ports created for the argument (clock port names, gates, etc.).
 >                          let resultType = cTApplys monadType [ifcType]
 >                              (paramIds, paramTypes) = unzip params
 >                              modType = CQType context (foldr fn resultType paramTypes)
->                              defClause = CClause (map CPVar paramIds) [] mod
+>                              -- Preserve ordinary module instance ownership through elaboration.
+>                              body = if PPdamContext `elem` attr_props
+>                                     then cVApply (idSetStateAttribAt pos)
+>                                          [Cattributes [(pos,PPdamContext)], mod]
+>                                     else mod
+>                              defClause = CClause (map CPVar paramIds) [] body
 >                              props = attr_props ++ param_props
 >                              prag = if null props then Nothing
 >                                     else Just (Pproperties name props)
@@ -5052,7 +5057,7 @@ process attributes attached to a module
 
 > attributes2modpprops :: Attributes -> SV_Parser ([PProp],[CSchedulePragma])
 > attributes2modpprops attrs = do
->     let allowed = ["synthesize", "always_ready", "always_enabled",
+>     let allowed = ["synthesize", "dam_context", "always_ready", "always_enabled",
 >                    "clock_prefix", "gate_prefix", "reset_prefix",
 >                    "doc", "descending_urgency", "preempts",
 >                    "execution_order", "mutually_exclusive", "conflict_free",
@@ -5132,6 +5137,7 @@ the error message
 >       def_rst = setIdPosition (getIdPosition name) idDefaultReset
 >   in case getIdString name of
 >        "synthesize" -> numeric PPverilog name
+>        "dam_context" -> numeric PPdamContext name
 >        "always_ready" -> longnamesOrNumeric PPalwaysReady name
 >        "always_enabled" -> longnamesOrNumeric PPalwaysEnabled name
 >        "enabled_when_ready" -> longnamesOrNumeric PPenabledWhenReady name

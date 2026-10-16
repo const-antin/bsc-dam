@@ -143,6 +143,8 @@ data PProp
         | PPinst_name Id
         | PPinst_hide
         | PPinst_hide_all
+        | PPdamContext                    -- strict source module context
+        | PPdamScope String [Id]           -- elaborated instance and owned state
         | PPdeprecate String
       deriving (Show, Eq, Ord, Generic.Data, Generic.Typeable)
 
@@ -271,6 +273,8 @@ instance PVPrint PProp where
                    (text ",")
         <> text "}"
     pvPrint d _ (PPoptions os) = text "options = {" <> sepList (map (text . show) os) (text ",") <> text "}"
+    pvPrint d _ PPdamContext = text "dam_context"
+    pvPrint d _ (PPdamScope n _) = text ("dam_context instance " ++ n)
     pvPrint d _ (PPverilog) = text "synthesize"
     pvPrint d _ (PPalwaysReady ms) = text "always_ready"
     pvPrint d _ (PPalwaysEnabled ms) = text "always_enabled"
@@ -294,6 +298,8 @@ ppPProp :: PDetail -> PProp -> Doc
 ppPProp d pprop = text "{-#" <+> pPrint d 0 pprop <+> text "#-};"
 
 instance NFData PProp where
+    rnf PPdamContext = ()
+    rnf (PPdamScope n is) = rnf2 n is
     rnf PPverilog = ()
     rnf (PPforeignImport i) = rnf i
     rnf (PPalwaysReady n) = rnf n
@@ -347,6 +353,8 @@ getPragmaArgNames (PPparam is)             = map getIdBaseString is
 getPragmaArgNames _ = []
 
 getModulePragmaName :: PProp -> String
+getModulePragmaName PPdamContext = "dam_context"
+getModulePragmaName (PPdamScope {}) = "dam_context_scope"
 getModulePragmaName PPverilog                = "synthesize"
 getModulePragmaName (PPforeignImport {})     = "foreign"
 getModulePragmaName (PPalwaysReady {})       = "always_ready"
@@ -393,6 +401,7 @@ data RulePragma
     | RPwarnAllConflicts
     | RPcanScheduleFirst
     | RPclockCrossingRule
+    | RPdamContext String -- exact elaboration ownership, preserved by rule splitting
     | RPdoc String  -- comment to carry through to Verilog
     | RPhide
       deriving (Show, Eq, Ord, Generic.Data, Generic.Typeable)
@@ -400,6 +409,7 @@ data RulePragma
 -- used for classic printing of CSyntax
 -- and by various internal dumps of ISyntax/ASyntax
 instance PPrint RulePragma where
+    pPrint d p (RPdamContext n) = text ("dam_context " ++ n)
     pPrint d p RPfireWhenEnabled = text "{-# ASSERT fire when enabled #-}"
     pPrint d p RPnoImplicitConditions =
         text "{-# ASSERT no implicit conditions #-}"
@@ -424,6 +434,7 @@ instance PPrint RulePragma where
 -- (only the first two are assertions, perhaps the data structures
 -- should reflect this?)
 getRulePragmaName :: RulePragma -> String
+getRulePragmaName (RPdamContext _) = "dam_context"
 getRulePragmaName RPfireWhenEnabled = "fire_when_enabled"
 getRulePragmaName RPnoImplicitConditions = "no_implicit_conditions"
 getRulePragmaName RPaggressiveImplicitConditions =
@@ -438,6 +449,7 @@ getRulePragmaName (RPdoc {}) = "doc"
 getRulePragmaName RPhide     = "hide"
 
 instance NFData RulePragma where
+    rnf (RPdamContext n) = rnf n
     rnf RPfireWhenEnabled = ()
     rnf RPnoImplicitConditions = ()
     rnf RPaggressiveImplicitConditions = ()

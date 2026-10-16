@@ -133,7 +133,8 @@ mkInstanceMap sb_map i =
 -- Test if a SimCCBlock or SimCCFn calls a foreign function
 fnCallsForeignFn :: SimCCFn -> Bool
 fnCallsForeignFn fn = (any makesForeignCall (sf_body fn))
-  where makesForeignCall (SFSDef _ _ Nothing)      = False
+  where makesForeignCall (SFSHostCall _) = False
+        makesForeignCall (SFSDef _ _ Nothing)      = False
         makesForeignCall (SFSDef _ _ (Just expr))  =
           not (null (exprForeignCalls expr))
         makesForeignCall (SFSAssign _ _ expr)    =

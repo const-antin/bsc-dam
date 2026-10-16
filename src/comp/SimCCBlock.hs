@@ -198,6 +198,7 @@ data SimCCFnStmt = -- Bool is whether the var is a port (else a def)
                  -- Bool is whether the var is a port (else a def)
                  -- AType is for assigning an undet value when the method/task is not called
                  | SFSAssignAction Bool AId AAction AType  -- var = avMethod(...)
+                 | SFSHostCall String                 -- runtime boundary
                  | SFSRuleExec ARuleId                  -- rule()
                  | SFSCond AExpr [SimCCFnStmt] [SimCCFnStmt]  -- if cond ...
                  -- calls corresponding to BSV methods
@@ -1234,6 +1235,7 @@ simFnStmtToCStmt s@(SFSAssignAction isPort aid act ty) =
                                   (dst `assign` call)
                                   (Just (dst `assign` undet))
        otherwise -> return $ if_cond cond (stmt call) Nothing
+simFnStmtToCStmt (SFSHostCall name) = return $ stmt $ var name `cCall` (if name == "dam_begin_cycle" then [var "simHdl"] else [])
 simFnStmtToCStmt (SFSRuleExec ruleId) =
   return $ stmt $ (aRuleIdToC ruleId) `cCall` []
 simFnStmtToCStmt (SFSCond cond [t] []) =
@@ -2219,6 +2221,7 @@ instance PPrint SimCCFn where
     in (ty <+> (text name) <> arg_list) $+$ (nest 2 stmts)
 
 instance PPrint SimCCFnStmt where
+  pPrint _ _ (SFSHostCall name) = text (name ++ "()")
   pPrint d p (SFSDef _ decl Nothing) = (text "define") <+> (ppDecl decl)
   pPrint d p (SFSDef _ decl (Just expr)) =
     (text "define") <+> (ppDecl decl) <+> (text "=") <+> (pPrint d 0 expr)
@@ -2284,6 +2287,7 @@ instance NFData SimCCFn where
   rnf (SimCCFn n a r b) = rnf4 n a r b
 
 instance NFData SimCCFnStmt where
+  rnf (SFSHostCall name) = rnf name
   rnf (SFSDef b t me) = rnf3 b t me
   rnf (SFSAssign b id e) = rnf3 b id e
   rnf (SFSAction act) = rnf act

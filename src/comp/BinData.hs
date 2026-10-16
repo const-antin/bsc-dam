@@ -801,6 +801,8 @@ instance Bin PProp where
     writeBytes (PPdeprecate txt)        = do putI 31; toBin txt
     writeBytes (PPinst_hide)            = putI 32
     writeBytes (PPinst_hide_all)        = putI 33
+    writeBytes PPdamContext            = putI 34
+    writeBytes (PPdamScope n is)       = do putI 35; toBin n; toBin is
     readBytes = do
         i <- getI
         case i of
@@ -837,6 +839,8 @@ instance Bin PProp where
           31 -> do txt <- fromBin; return (PPdeprecate txt)
           32 -> return PPinst_hide
           33 -> return PPinst_hide_all
+          34 -> return PPdamContext
+          35 -> do n <- fromBin; is <- fromBin; return (PPdamScope n is)
           n  -> internalError $ "BinData.Bin(PProp).readBytes: " ++ show n
 
 instance Bin PPnm where
@@ -880,6 +884,7 @@ instance Bin RulePragma where
     writeBytes RPclockCrossingRule              = putI 7
     writeBytes (RPdoc txt)                      = do putI 8; toBin txt
     writeBytes RPhide                           = putI 9
+    writeBytes (RPdamContext n)                 = do putI 10; toBin n
     readBytes = do tag <- getI
                    case tag of
                      0 -> return RPfireWhenEnabled
@@ -892,6 +897,7 @@ instance Bin RulePragma where
                      7 -> return RPclockCrossingRule
                      8 -> do txt <- fromBin; return (RPdoc txt)
                      9 -> return RPhide
+                     10 -> do n <- fromBin; return (RPdamContext n)
                      n -> internalError $ "BinData.Bin(RulePragma).readBytes: " ++ show n
 
 instance (Bin t, Ord t) => Bin (SchedulePragma t) where
